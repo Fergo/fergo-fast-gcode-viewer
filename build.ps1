@@ -33,5 +33,27 @@ Copy-Item vendor/SDL3-3.4.18/LICENSE.txt (Join-Path $OutputDirectory 'SDL-LICENS
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 & (Resolve-Path $colorsTestPath)
 if ($LASTEXITCODE -ne 0) { throw 'Color tests failed' }
-if (!$Debug) { & ./.tools/w64devkit/bin/strip.exe $appPath }
+if (!$Debug) {
+    & ./.tools/w64devkit/bin/strip.exe $appPath
+    if ($LASTEXITCODE -ne 0) { throw 'Executable stripping failed' }
+}
 Write-Host "Build completed: $appPath"
+
+# Package only runtime files after a successful Release build and test run.
+# Read the version from the application header so GitHub release names stay in sync.
+if (!$Debug) {
+    $versionHeader = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'src/app_info.h') -Raw
+    $versionMatch = [regex]::Match($versionHeader, '(?m)^\s*#define\s+FERGO_APP_VERSION\s+"([0-9]+\.[0-9]+\.[0-9]+)"')
+    if (!$versionMatch.Success) { throw 'Cannot read FERGO_APP_VERSION for release packaging' }
+    $version = $versionMatch.Groups[1].Value
+    $zipPath = Join-Path $OutputDirectory "Fergo-Fast-GCode-Viewer-v$version-Windows-x64.zip"
+    # Use repository defaults rather than personal colors saved beside a local executable.
+    $releaseFiles = @(
+        $appPath
+        (Join-Path $OutputDirectory 'SDL3.dll')
+        (Join-Path $PSScriptRoot 'colors.txt')
+        (Join-Path $OutputDirectory 'SDL-LICENSE.txt')
+    )
+    Compress-Archive -LiteralPath $releaseFiles -DestinationPath $zipPath -CompressionLevel Optimal -Force
+    Write-Host "Release ZIP created: $zipPath"
+}

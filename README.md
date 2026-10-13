@@ -193,6 +193,14 @@ directory. The scripts compile the application and run parser tests. Release bui
 are stripped; Debug builds preserve symbols and disable optimization.
 The toolchain and development package are not required to run the viewer.
 
+Every successful Release build also creates
+`Fergo-Fast-GCode-Viewer-v<VERSION>-Windows-x64.zip` in the output directory
+(`dist` by default), ready to upload as a GitHub release asset. The version comes
+from `src/app_info.h`. The ZIP contains only `fergo-gcode-viewer.exe`, `SDL3.dll`,
+`colors.txt` (repository defaults), and `SDL-LICENSE.txt`, directly at its root.
+Tests, build tools, shaders, and source files are excluded. Debug builds do not
+create a release ZIP. `build.bat` generates the same ZIP through `build.ps1`.
+
 `docs/icon.ico` is embedded in the Windows executable by
 `src/app.rc`. `src/app_icon.h` contains the same decoded image for the SDL window
 icon on all platforms; regenerate it if you replace the original icon.
