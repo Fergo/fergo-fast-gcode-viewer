@@ -32,6 +32,8 @@ double sweep(double a, double b, bool cw) {
 } // namespace
 
 Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, std::atomic<float> *progress, const std::filesystem::path &logPath) {
+    // CPU-only parser: callers may execute this on a worker thread. No SDL or GL
+    // state is accessed here. The returned Model owns all data until GPU upload.
     auto start = std::chrono::steady_clock::now();
     std::ifstream in(path, std::ios::binary);
     if (!in)
@@ -55,6 +57,9 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
 
     // Reserve conservatively; a massive file must not trigger a massive allocation up front.
     m.vertices.reserve(static_cast<size_t>(std::min<std::uint64_t>(bytes / 8, 2000000)));
+    // p/e track physical position and logical extrusion history in millimeters.
+    // G92 changes offsets rather than moving p: later absolute coordinates are
+    // translated back to the same physical frame. unit converts inches to mm.
     Vec3 p{}, offset{};
     double e = 0, eo = 0, unit = 1;
     bool absolute = true, eAbsolute = true, arcAbsolute = false;
@@ -65,6 +70,8 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
     std::uint64_t consumed = 0;
 
     auto add = [&](Vec3 a, Vec3 b, bool print) {
+        // Emit independent endpoint pairs for GL_LINES. Zero-length XYZ moves
+        // still update extrusion state elsewhere but need no visible geometry.
         if (length(a, b) < 1e-9)
             return;
         if (m.vertices.size() > static_cast<size_t>(std::numeric_limits<int>::max() - 2))
@@ -104,6 +111,8 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
     while (std::getline(in, line)) {
         ++m.lines;
         consumed += line.size() + 1;
+        // Check periodically rather than performing atomic work for every word.
+        // The caller keeps input responsive and can cancel a large file mid-scan.
         if ((m.lines & 4095) == 0) {
             if (cancel && cancel->load())
                 throw std::runtime_error("Cancelled");
@@ -111,10 +120,14 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 progress->store(bytes ? std::min(1.f, float(double(consumed) / bytes)) : 1.f);
         }
 
+        // Store numeric parameters by letter instead of allocating a map. 'seen'
+        // also remembers bare words such as X in G28 X; 'has' requires a number.
         std::array<double, 26> val{};
         std::array<bool, 26> has{}, seen{};
         std::vector<double> gs, ms;
         int comment = 0;
+        // Scan words directly, including tightly packed G1X10Y20. Comments and
+        // checksum suffixes are excluded before interpreting motion/settings.
         for (size_t i = 0; i < line.size();) {
             char c = line[i++];
             if (c == ';' || c == '*')
@@ -142,6 +155,8 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             if (first != last && *first == '+')
                 ++first;
             double v = 0;
+            // Locale-independent fixed parsing keeps E as a GCode parameter,
+            // not the exponent part of the preceding coordinate (e.g. X1E2).
             auto result = std::from_chars(first, last, v, std::chars_format::fixed);
             if (result.ec != std::errc{} || !std::isfinite(v))
                 continue;
@@ -159,6 +174,8 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
         auto h = [&](char c) { return has[c - 'A']; };
         auto v = [&](char c) { return val[c - 'A']; };
         bool setPosition = false, home = false, block = false, explicitMotion = false;
+        // Motion and coordinate modes are modal: they remain active on later
+        // lines even when a subsequent move omits its G0/G1/G2/G3 word.
         for (double g : gs) {
             if (g >= 0 && g <= 3 && g == std::floor(g)) {
                 motion = int(g);
@@ -187,6 +204,8 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             }
         }
 
+        // Retain relevant printer settings without inventing geometry for them.
+        // Acceleration, timing, and pressure compensation are not simulated here.
         for (double code : ms) {
             if (code == 82)
                 eAbsolute = true;
@@ -269,6 +288,8 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
         }
 
         if (h('T') && gs.empty() && ms.empty()) {
+            // Each extruder has independent logical E history/G92 extrusion offset.
+            // T used as an M-command parameter must not select the active tool.
             int next = int(std::clamp(v('T'), 0., 255.));
             toolE[tool] = e;
             toolOffset[tool] = eo;
@@ -279,6 +300,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
         }
 
         if (setPosition) {
+            // G92 relabels the current location; it never emits a travel segment.
             if (h('X'))
                 offset.x = p.x - v('X') * unit;
             if (h('Y'))
@@ -290,10 +312,15 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             continue;
         }
 
+        // Unknown G commands may change the meaning of coordinates, so do not
+        // guess at movement on their line. Standalone M parameters (e.g. M201 X)
+        // also must not inherit a previous modal G1 and accidentally draw a move.
         if (block || (!ms.empty() && !explicitMotion))
             continue;
         if (!h('X') && !h('Y') && !h('Z') && !h('E') && !h('I') && !h('J') && !h('K') && !h('R'))
             continue;
+        // Missing axes preserve their previous position. Relative coordinates add
+        // to p, while absolute coordinates include the active G92 offset.
         Vec3 q = p;
         if (h('X'))
             q.x = absolute ? v('X') * unit + offset.x : p.x + v('X') * unit;
@@ -328,6 +355,9 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 cu = h(ca) ? (arcAbsolute ? v(ca) * unit + off[0] : a[0] + v(ca) * unit) : a[0];
                 cv = h(cb) ? (arcAbsolute ? v(cb) * unit + off[1] : a[1] + v(cb) * unit) : a[1];
             } else if (h('R')) {
+                // The chord midpoint has two possible circle centers. Direction
+                // selects the short arc; negative R selects the complementary,
+                // long arc by choosing the center on the opposite side.
                 double radius = std::abs(v('R') * unit), dx = b[0] - a[0], dy = b[1] - a[1], d = std::hypot(dx, dy);
                 if (d < 1e-9 || d > 2 * radius + 1e-7)
                     valid = false;
@@ -346,22 +376,32 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 valid = false;
             if (valid) {
                 double angle = std::atan2(a[1] - cv, a[0] - cu), delta = sweep(angle, std::atan2(b[1] - cv, b[0] - cu), cw);
+                // Convert the 0.05 mm chord-error target into an angular step.
+                // Additional angular limits keep small circles smooth and bound
+                // the work for pathological input (100,000 segments per arc).
                 double step = 2 * std::acos(std::clamp(1 - .05 / radius, -1., 1.));
                 int count = int(std::clamp(std::ceil(std::abs(delta) / std::min(.12, std::max(step, .001))), 1., 100000.));
                 Vec3 prev = p;
                 for (int k = 1; k <= count; ++k) {
                     double t = double(k) / count, ang = angle + delta * t;
+                    // Interpolate the perpendicular axis to support helices.
+                    // Use the exact requested endpoint on the last segment to
+                    // avoid accumulating trigonometric rounding differences.
                     Vec3 cur = k == count ? q : from(cu + radius * std::cos(ang), cv + radius * std::sin(ang), a[2] + (b[2] - a[2]) * t);
                     add(prev, cur, print);
                     prev = cur;
                 }
             } else {
+                // Keep a useful preview even when the arc cannot be resolved;
+                // the diagnostic counter makes this straight-line fallback visible.
                 ++m.invalidArcs;
                 add(p, q, print);
             }
         } else
             add(p, q, print);
         if (m.vertices.size() != before)
+            // An entire arc occupies one slider step despite having many GPU
+            // segments. Its cumulative endpoint reveals all segments together.
             m.moves.push_back({q, static_cast<std::uint32_t>(m.vertices.size()), m.lines});
         p = q;
         e = ne;

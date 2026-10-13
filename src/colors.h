@@ -7,6 +7,8 @@
 #include <string>
 
 struct RGB {
+    // Byte channels match the human-readable hex file. OpenGL uniforms/colors
+    // use normalized 0..1 floats, converted only when the palette is rendered.
     unsigned char r, g, b;
 
     float red() const {
@@ -29,6 +31,8 @@ struct RGB {
 };
 
 struct Colors {
+    // Slot order is shared by defaults, file names, and the COLORS panel list.
+    // Settings are fixed and tiny, so a linear search avoids map/parser machinery.
     enum Slot { Background,
                 Grid,
                 Travel,
@@ -64,6 +68,8 @@ struct Colors {
         std::ifstream file(path);
         if (!file)
             return false;
+        // Start from defaults on each load. Build a candidate palette first so
+        // an I/O failure cannot partially replace the currently displayed colors.
         Colors loaded;
         std::string line;
         while (std::getline(file, line)) {
@@ -75,6 +81,8 @@ struct Colors {
             if (value.size() != 7 || value[0] != '#')
                 continue;
             unsigned int rgb = 0;
+            // Require exactly six consumed hex digits: invalid suffixes, short
+            // values, or partial numeric conversions do not silently change a color.
             auto parsed = std::from_chars(value.data() + 1, value.data() + 7, rgb, 16);
             if (parsed.ec != std::errc{} || parsed.ptr != value.data() + 7)
                 continue;

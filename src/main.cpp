@@ -20,6 +20,9 @@
 #include <thread>
 
 namespace {
+// All geometry is expressed in millimeters with Z pointing up. SDL owns the
+// native window/input integration; OpenGL owns the scene and UI rendering.
+// The render thread is the main thread. The parser worker never calls OpenGL.
 constexpr double pi = 3.14159265358979323846;
 using gc::Vec3;
 
@@ -47,6 +50,9 @@ Vec3 normalized(Vec3 a) {
     return a * (1 / std::sqrt(dot(a, a)));
 }
 
+// Windows' system OpenGL library exports only the original 1.1 entry points.
+// Newer buffer functions are retrieved from the active graphics driver through
+// SDL_GL_GetProcAddress. APIENTRY preserves the driver's calling convention.
 using GenBuffers = void(APIENTRY *)(GLsizei, GLuint *);
 using BindBuffer = void(APIENTRY *)(GLenum, GLuint);
 using BufferData = void(APIENTRY *)(GLenum, std::ptrdiff_t, const void *, GLenum);
@@ -57,28 +63,42 @@ BufferData bufferData;
 DeleteBuffers deleteBuffers;
 
 struct Camera {
+    // Orbit around target instead of rotating the model itself. distance controls
+    // zoom; span records the model scale for clipping, fog, and the ground grid.
     Vec3 target{};
     double yaw = -.7, pitch = .85, distance = 250, span = 200;
 
     Vec3 direction() const {
+        // Convert yaw/pitch into a unit vector from the orbit target to the eye.
         return {std::cos(yaw) * std::cos(pitch), std::sin(yaw) * std::cos(pitch), std::sin(pitch)};
     }
 
     void fit(const gc::Model &m) {
+        // Use the bounding box midpoint and a conservative viewing distance.
+        // The minimum span keeps empty or very small files navigable.
         target = (m.min + m.max) * .5;
         span = std::max({m.max.x - m.min.x, m.max.y - m.min.y, m.max.z - m.min.z, 10.});
         distance = span * 2.2;
     }
 
     void apply(int w, int h) const {
+        // Perspective projection: the frustum gets wider with distance from the
+        // eye. Its aspect ratio uses the 3D viewport, excluding toolbar/footer.
+        // The near plane must be positive; scaling it with distance avoids an
+        // unnecessarily huge far/near ratio and excessive depth precision loss.
         double nearZ = std::max(.001, distance * .0001), farZ = distance + span * 20 + 1000;
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         double top = nearZ * std::tan(45 * pi / 360), aspect = double(w) / std::max(h, 1);
         glFrustum(-top * aspect, top * aspect, -top, top, nearZ, farZ);
+        // Build a look-at basis: forward points toward target, right is perpendicular
+        // to forward and world Z, and up completes the orthonormal camera frame.
         Vec3 eye = target + direction() * distance, forward = normalized(target - eye);
         Vec3 right = normalized(cross(forward, {0, 0, 1})), up = cross(right, forward);
         double matrix[] = {right.x, up.x, -forward.x, 0, right.y, up.y, -forward.y, 0, right.z, up.z, -forward.z, 0, 0, 0, 0, 1};
+        // OpenGL expects column-major matrices. Transform world coordinates into
+        // the camera basis, then subtract the eye position. Points in front of
+        // the camera have negative eye-space Z, which the shader also assumes.
         glMatrixMode(GL_MODELVIEW);
         glLoadMatrixd(matrix);
         glTranslated(-eye.x, -eye.y, -eye.z);
@@ -87,6 +107,10 @@ struct Camera {
 
 // Compact 5x7 bitmap alphabet. No font library or runtime asset loading.
 const char *glyph(char c) {
+    // Each string contains seven hexadecimal bytes, one per row. Only the low
+    // five bits are used, so one character needs a 5x7 cell plus horizontal spacing.
+    // Lowercase maps to uppercase because this intentionally small alphabet is
+    // used for interface labels rather than general Unicode text rendering.
     static const char *letters[] = {"0E11111F111111", "1E11111E11111E", "0E11101010110E", "1E11111111111E", "1F10101E10101F", "1F10101E101010",
                                     "0E11101711110F", "1111111F111111", "0E04040404040E", "0702020212120C", "11121418141211", "1010101010101F",
                                     "111B1515111111", "11191513111111", "0E11111111110E", "1E11111E101010", "0E11111115120D", "1E11111E141211",
@@ -139,6 +163,9 @@ void color(RGB c) {
 }
 
 void rect(float x, float y, float w, float h) {
+    // Compatibility-profile immediate mode is sufficient for this tiny UI:
+    // submit four corners under the current orthographic projection and color.
+    // The large toolpath uses GPU buffers instead of this per-vertex CPU path.
     glBegin(GL_QUADS);
     glVertex2f(x, y);
     glVertex2f(x + w, y);
@@ -147,6 +174,8 @@ void rect(float x, float y, float w, float h) {
     glEnd();
 }
 
+// Ratios between framebuffer pixels and SDL logical window coordinates. Input
+// stays in logical coordinates; font cell boundaries must land on physical pixels.
 float uiPixelX = 1, uiPixelY = 1;
 
 void text(float x, float y, const std::string &s, float scale = 2) {
@@ -161,6 +190,8 @@ void text(float x, float y, const std::string &s, float scale = 2) {
     for (char c : s) {
         const char *g = glyph(c);
         for (int row = 0; row < 7; ++row) {
+            // Decode a row mask and emit one filled quad for each enabled pixel.
+            // All glyphs share this glBegin/glEnd pair, avoiding one call per dot.
             int bits = hex(g[row * 2]) * 16 + hex(g[row * 2 + 1]);
             for (int col = 0; col < 5; ++col)
                 if (bits & (1 << (4 - col))) {
@@ -186,6 +217,9 @@ void button(float x, const char *label, bool active = false) {
 }
 
 struct ColorsPanel {
+    // UI state stays separate from the palette used by the scene. A slider updates
+    // CPU RGB bytes immediately; the next frame sends those values as shader uniforms.
+    // No toolpath vertices need to be regenerated when the user changes a color.
     Colors palette;
     std::filesystem::path path;
     bool open = false, changed = false;
@@ -217,6 +251,8 @@ struct ColorsPanel {
     }
 
     void adjust(float x, int w) {
+        // Translate the mouse position along a 190-logical-pixel track into an
+        // integer 0..255 channel. Clamp so dragging outside the track stays safe.
         int value = int(std::lround(std::clamp((x - left(w) - 320) / 190, 0.f, 1.f) * 255));
         auto &c = palette.values[selected];
         if (dragging == 0)
@@ -230,6 +266,8 @@ struct ColorsPanel {
     }
 
     void mouseDown(float x, float y, int w, int h) {
+        // Convert window coordinates into panel-local coordinates. The same layout
+        // numbers are used in draw(), keeping the hit areas aligned with the controls.
         float lx = x - left(w), ly = y - top(h);
         if (lx >= 16 && lx < 260 && ly >= 58 && ly < 58 + Colors::Count * 24) {
             selected = int((ly - 58) / 24);
@@ -256,6 +294,7 @@ struct ColorsPanel {
     }
 
     void mouseUp() {
+        // Persist once at the end of a drag, not on every mouse motion event.
         if (dragging >= 0) {
             dragging = -1;
             save();
@@ -265,6 +304,9 @@ struct ColorsPanel {
     }
 
     void draw(int w, int h) const {
+        // This is a 2D overlay: the caller has already disabled depth testing and
+        // selected the full-window orthographic projection. Use fixed UI colors
+        // so editing the scene background cannot make this panel unreadable.
         float x = left(w), y = top(h);
         color(.035f, .05f, .075f);
         rect(x - 3, y - 3, 606, 336);
@@ -321,6 +363,9 @@ struct Dialog {
     bool open = false;
 
     static void SDLCALL callback(void *user, const char *const *paths, int) {
+        // SDL can invoke this asynchronous callback off the main thread. Copy the
+        // selected UTF-8 path while SDL's array is valid, and publish it under a
+        // mutex. Loading, window updates, and all GL calls happen later in run().
         auto &self = *static_cast<Dialog *>(user);
         std::lock_guard<std::mutex> lock(self.mutex);
         if (paths && paths[0])
@@ -329,6 +374,8 @@ struct Dialog {
     }
 
     void show(SDL_Window *w) {
+        // Avoid opening multiple native file pickers. No filters are required:
+        // many slicers use extensions other than .gcode for ordinary text GCode.
         std::lock_guard<std::mutex> lock(mutex);
         if (open)
             return;
@@ -338,9 +385,14 @@ struct Dialog {
 };
 
 void screenshot(int w, int h, const char *path) {
+    // Read the currently rendered back buffer before SDL_GL_SwapWindow. OpenGL's
+    // row zero is the bottom row, matching a BMP with a positive image height.
+    // BGR is the BMP channel order. Pack alignment 1 avoids padding in this CPU array.
     std::vector<unsigned char> data(static_cast<size_t>(w) * h * 3);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_BGR, GL_UNSIGNED_BYTE, data.data());
+    // BMP itself requires each stored row to occupy a multiple of four bytes;
+    // add that file padding separately from the tightly packed OpenGL readback.
     const unsigned stride = (w * 3 + 3) & ~3u, size = 54 + stride * h;
     std::array<unsigned char, 54> header{};
     header[0] = 'B';
@@ -367,15 +419,25 @@ void screenshot(int w, int h, const char *path) {
 }
 
 int run(int argc, char **argv) {
+    // Initialize only SDL's video subsystem; it also supplies window/input events.
+    // These attributes must be set before creating the OpenGL-capable window.
     if (!SDL_Init(SDL_INIT_VIDEO))
         throw std::runtime_error(SDL_GetError());
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    // Compatibility is deliberate: the scene uses modern shaders/VBOs, while the
+    // small UI and grid still use glBegin, client arrays, and built-in matrices.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    // Double buffering renders off-screen first, then presents a complete frame.
+    // The 24-bit depth attachment stores the nearest scene surface per sample.
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    // Request four samples per pixel to soften line/triangle silhouettes. If the
+    // window cannot be created with this pixel format, retry without multisampling.
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+    // HIGH_PIXEL_DENSITY allows a larger physical framebuffer on scaled displays.
+    // Logical window dimensions and actual framebuffer dimensions are queried separately.
     SDL_Window *window = SDL_CreateWindow(FERGO_APP_NAME, 1280, 800, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window) {
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
@@ -386,6 +448,9 @@ int run(int argc, char **argv) {
     if (!window)
         throw std::runtime_error(SDL_GetError());
     SDL_SetWindowMinimumSize(window, 720, 400);
+    // Wrap embedded RGBA pixels in an SDL surface. The stride is four bytes per
+    // pixel. SDL_CreateSurfaceFrom does not own our static pixel array; destroying
+    // the wrapper after SDL_SetWindowIcon is safe because SDL copies the icon.
     auto *icon = SDL_CreateSurfaceFrom(appIconWidth, appIconHeight, SDL_PIXELFORMAT_RGBA32, appIconPixels, appIconWidth * 4);
     if (!icon)
         throw std::runtime_error(SDL_GetError());
@@ -394,6 +459,8 @@ int run(int argc, char **argv) {
     // Some Linux window managers do not support per-window icons.
     if (!iconSet)
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Window icon: %s", SDL_GetError());
+    // Creating the context also makes it current on this thread. Only now can we
+    // resolve driver entry points, create buffers, or compile shader programs.
     auto context = SDL_GL_CreateContext(window);
     if (!context)
         throw std::runtime_error(SDL_GetError());
@@ -403,13 +470,20 @@ int run(int argc, char **argv) {
     deleteBuffers = reinterpret_cast<DeleteBuffers>(SDL_GL_GetProcAddress("glDeleteBuffers"));
     if (!genBuffers || !bindBuffer || !bufferData || !deleteBuffers)
         throw std::runtime_error("OpenGL 3.3 compatibility required");
+    // Compile the complete vertex -> geometry -> fragment pipeline once at startup.
     LineShader lineShader;
     lineShader.init();
+    // Ask the driver to synchronize presentation with the monitor. The event loop
+    // also sleeps when idle, so a static scene does not continuously redraw.
     SDL_GL_SetSwapInterval(1);
     GLuint buffer = 0;
+    // Allocate a VBO name, not its storage yet. Storage is created/replaced only
+    // after a parsed file is ready to upload on the main thread.
     genBuffers(1, &buffer);
     Camera camera;
     gc::Model model;
+    // The worker communicates cancellation/progress through atomics. Its completed
+    // Model travels through the future; pending holds the latest requested filename.
     std::atomic<bool> cancel{false};
     std::atomic<float> progress{0};
     std::future<gc::Model> future;
@@ -424,6 +498,8 @@ int run(int argc, char **argv) {
     double testDistance = 0, testYaw = 0;
     size_t testStepExpected = 0;
     Vec3 testTarget{};
+    // visible is a count of complete geometric moves, not source lines or vertices.
+    // playCursor retains fractional movement progress between playback frames.
     size_t visible = 0;
     double playCursor = 0;
     double playbackSpeed = 1.0;
@@ -442,6 +518,8 @@ int run(int argc, char **argv) {
         }
     }
 
+    // Resolve settings relative to the executable, not the shell's working directory.
+    // Selftests use a separate settings file to avoid modifying normal preferences.
     ColorsPanel colors;
     const char *basePath = SDL_GetBasePath();
     if (!basePath)
@@ -457,6 +535,8 @@ int run(int argc, char **argv) {
         colors.notice = "CANNOT ACCESS COLORS.TXT";
     int w = 1280, h = 800, pw = 1280, ph = 800;
     float mx = 0, my = 0;
+    // WaitEventTimeout removes an event from SDL's queue. Keep that exact event
+    // for the next loop instead of pushing it back, which can alter event handling.
     SDL_Event waited{};
     bool hasWaited = false;
     auto last = std::chrono::steady_clock::now();
@@ -466,6 +546,8 @@ int run(int argc, char **argv) {
     };
 
     auto scrub = [&](float x) {
+        // Slider endpoints map to zero visible moves and the full model. Arc
+        // tessellation is hidden behind Move::vertexEnd, so an arc is one step.
         if (model.moves.empty())
             return;
         double t = std::clamp(double(x - 36) / std::max(w - 72, 1), 0., 1.);
@@ -480,37 +562,52 @@ int run(int argc, char **argv) {
         playbackSpeed = std::pow(10., 2 * t - 1);
         dirty = true;
     };
+    // Main loop: drain input, consume completed parsing, advance playback, and
+    // redraw only if dirty. SDL and the OpenGL context stay on this thread.
     while (running) {
+        // Mouse/hit testing uses w/h; glViewport and screenshots use pw/ph.
         SDL_GetWindowSize(window, &w, &h);
         SDL_GetWindowSizeInPixels(window, &pw, &ph);
         SDL_Event event;
+        // Process the event obtained during the idle wait first, then drain all
+        // queued events so mouse drags do not lag behind the user's input.
         while (hasWaited ? (event = waited, hasWaited = false, true) : SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_EVENT_QUIT:
                 running = false;
                 break;
             case SDL_EVENT_WINDOW_EXPOSED:
+                // A newly exposed or resized surface needs a fresh frame even
+                // if the model/camera state has not changed.
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
                 dirty = true;
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
+                // Losing focus can prevent a matching mouse-up event. Clear drag
+                // state and release capture so controls do not remain stuck.
                 speedDragging = scrubbing = false;
                 if (colors.dragging >= 0)
                     colors.mouseUp();
                 SDL_CaptureMouse(false);
                 break;
             case SDL_EVENT_DROP_FILE:
+                // Copy SDL's event-owned path immediately. Request cancellation
+                // of the old parse; the new job starts after that worker exits.
                 pending = event.drop.data;
                 cancel = true;
                 playing = false;
                 break;
             case SDL_EVENT_MOUSE_WHEEL:
+                // Exponential zoom changes distance by a percentage per wheel
+                // step, keeping zoom useful for both tiny and very large models.
                 if (about || colors.open)
                     break;
                 camera.distance = std::clamp(camera.distance * std::exp(-event.wheel.y * .12), .01, std::max(1000., camera.span * 1000));
                 dirty = true;
                 break;
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                // Hit-test modal panels first, then speed/progress sliders, then
+                // toolbar buttons. UI gestures must not also move the 3D camera.
                 mx = event.button.x;
                 my = event.button.y;
                 if (event.button.button == SDL_BUTTON_LEFT) {
@@ -531,6 +628,7 @@ int run(int argc, char **argv) {
 
                     if (playing && my >= h - 146 && my < h - 104) {
                         speedDragging = true;
+                        // Capture keeps receiving drag events beyond window bounds.
                         SDL_CaptureMouse(true);
                         setSpeed(mx);
                     } else if (my >= h - 65) {
@@ -568,6 +666,7 @@ int run(int argc, char **argv) {
 
                 break;
             case SDL_EVENT_MOUSE_BUTTON_UP:
+                // A release completes color persistence and ends slider capture.
                 if (event.button.button == SDL_BUTTON_LEFT) {
                     if (colors.dragging >= 0) {
                         colors.mouseUp();
@@ -601,10 +700,16 @@ int run(int argc, char **argv) {
                 else if (scrubbing)
                     scrub(mx);
                 else if (event.motion.state & SDL_BUTTON_RMASK) {
+                    // SDL reports button state with motion, so no separate orbit
+                    // flag is needed. Clamp pitch short of the poles to keep the
+                    // cross-product camera basis well-defined.
                     camera.yaw -= dx * .007;
                     camera.pitch = std::clamp(camera.pitch + dy * .007, -1.55, 1.55);
                     dirty = true;
                 } else if ((event.motion.state & SDL_BUTTON_LMASK) && my > 62 && my < h - 75) {
+                    // Pan in camera right/up directions rather than world XY.
+                    // Perspective world-units-per-pixel grows with eye distance,
+                    // making the dragged model follow the cursor at any zoom.
                     Vec3 forward = camera.direction() * -1, right = normalized(cross(forward, {0, 0, 1})), up = cross(right, forward);
                     double units = 2 * camera.distance * std::tan(pi / 8) / std::max(h - 150, 1);
                     camera.target = camera.target + right * (-dx * units) + up * (dy * units);
@@ -640,6 +745,8 @@ int run(int argc, char **argv) {
                     break;
                 }
 
+                // SDL supplies OS keyboard repeat. Allow it only for arrow steps;
+                // holding Space, T, or O should not repeatedly toggle/open controls.
                 if (event.key.repeat && event.key.key != SDLK_LEFT && event.key.key != SDLK_RIGHT)
                     break;
                 if (event.key.key == SDLK_ESCAPE)
@@ -671,6 +778,8 @@ int run(int argc, char **argv) {
             }
         }
 
+        // The picker callback only publishes a filename. Consume it here under
+        // the same mutex, then follow the same loading path as drag-and-drop.
         {
             std::lock_guard<std::mutex> lock(dialog->mutex);
             if (dialog->path) {
@@ -681,6 +790,9 @@ int run(int argc, char **argv) {
             }
         }
 
+        // A zero-time wait checks readiness without blocking input/rendering.
+        // If a newer request is pending, discard this older result instead of
+        // uploading a model the user no longer wants to view.
         if (future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             try {
                 auto result = future.get();
@@ -689,9 +801,14 @@ int run(int argc, char **argv) {
                     visible = model.moves.size();
                     playCursor = double(visible);
                     fit();
+                    // Clear older GL errors so the next error check specifically
+                    // diagnoses this buffer upload (e.g. insufficient GPU memory).
                     while (glGetError() != GL_NO_ERROR) {
                     }
 
+                    // Bind the destination VBO and copy the interleaved vertices
+                    // into driver-managed storage. STATIC_DRAW describes geometry
+                    // uploaded once and reused across many orbit/slider frames.
                     bindBuffer(GL_ARRAY_BUFFER, buffer);
                     bufferData(GL_ARRAY_BUFFER, static_cast<std::ptrdiff_t>(model.vertices.size() * sizeof(gc::Vertex)), model.vertices.data(), GL_STATIC_DRAW);
                     bindBuffer(GL_ARRAY_BUFFER, 0);
@@ -732,6 +849,9 @@ int run(int argc, char **argv) {
             dirty = true;
         }
 
+        // Never launch multiple parser workers against the shared cancel/progress
+        // atomics. Capture the filename by value so later requests cannot change it.
+        // The worker does file I/O and CPU geometry only: no window or GL calls.
         if (pending && !future.valid()) {
             std::string path = std::move(*pending);
             pending.reset();
@@ -752,6 +872,9 @@ int run(int argc, char **argv) {
             });
         } else if (pending)
             cancel = true;
+        // Use elapsed monotonic time, not frame count, so playback speed is largely
+        // independent of refresh rate. Converting playCursor to size_t reveals
+        // only complete moves and keeps the displayed source line deterministic.
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last).count();
         last = now;
@@ -763,13 +886,20 @@ int run(int argc, char **argv) {
             dirty = true;
         }
 
+        // While parsing, redraw the progress bar. Otherwise a static scene can
+        // skip the entire GL section until input or window exposure makes it dirty.
         if (loading)
             dirty = true;
         if (dirty && pw > 0 && ph > 0 && w > 0 && h > 0) {
+            // Start a fresh back buffer. Clearing both color and depth prevents
+            // geometry from the previous frame from affecting this camera view.
             glViewport(0, 0, pw, ph);
             auto background = colors.palette[Colors::Background];
             glClearColor(background.red(), background.green(), background.blue(), 1);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            // OpenGL viewport origins are bottom-left. Reserve the physical-pixel
+            // equivalent of the logical toolbar/footer, then project the 3D scene
+            // only into the remaining rectangle.
             int bottom = int(100. * ph / h), top = int(62. * ph / h), vh = std::max(1, ph - bottom - top);
             glViewport(0, bottom, pw, vh);
             glEnable(GL_DEPTH_TEST);
@@ -801,6 +931,9 @@ int run(int argc, char **argv) {
             glEnd();
             glDepthMask(GL_TRUE);
 
+            // Axes draw after the non-depth-writing grid, so their colors win on
+            // coincident pixels. Depth writing is restored for axes and toolpath:
+            // the actual model can still occlude an axis that lies behind it.
             glBegin(GL_LINES);
             color(colors.palette[Colors::AxisX]);
             glVertex3d(0, 0, 0);
@@ -813,18 +946,31 @@ int run(int argc, char **argv) {
             glVertex3d(0, 0, gridStep * 3);
             glEnd();
             if (visible && !model.moves.empty()) {
+                // With a VBO bound, client-array pointers are byte offsets into
+                // GPU storage, not addresses in CPU memory. Vertex positions are
+                // three floats at offset 0; RGBA bytes start at offset 12.
+                // The shader uses alpha as the extrusion/travel classification;
+                // actual display RGB comes from the editable palette uniforms.
                 bindBuffer(GL_ARRAY_BUFFER, buffer);
                 glEnableClientState(GL_VERTEX_ARRAY);
                 glEnableClientState(GL_COLOR_ARRAY);
                 glVertexPointer(3, GL_FLOAT, sizeof(gc::Vertex), nullptr);
                 glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(gc::Vertex), reinterpret_cast<void *>(12));
                 lineShader.begin(float(vh), float(camera.distance), float(camera.span), travel, colors.palette);
+                // Every two vertices form an independent line segment. Each Move
+                // records a cumulative vertex end, including all segments of an
+                // arc. Scrubbing therefore changes only this draw count: no upload.
                 glDrawArrays(GL_LINES, 0, model.moves[visible - 1].vertexEnd);
                 lineShader.end();
+                // Restore fixed-function rendering for the marker, grid, and UI.
+                // Leaving the shader/arrays/buffer bound would leak scene state
+                // into later immediate-mode draws.
                 glDisableClientState(GL_COLOR_ARRAY);
                 glDisableClientState(GL_VERTEX_ARRAY);
                 bindBuffer(GL_ARRAY_BUFFER, 0);
                 Vec3 p = model.moves[visible - 1].end;
+                // Deliberately draw the current nozzle over all geometry so its
+                // location remains visible even inside a dense or enclosed model.
                 glDisable(GL_DEPTH_TEST);
                 glPointSize(8);
                 color(colors.palette[Colors::Nozzle]);
@@ -834,6 +980,9 @@ int run(int argc, char **argv) {
                 glEnable(GL_DEPTH_TEST);
             }
 
+            // Switch from 3D to UI rendering. No depth testing: labels and panels
+            // must draw over the scene. glOrtho maps logical coordinates directly
+            // to the whole window, with Y increasing downward like SDL mouse input.
             glDisable(GL_DEPTH_TEST);
             glViewport(0, 0, pw, ph);
             glMatrixMode(GL_PROJECTION);
@@ -841,6 +990,8 @@ int run(int argc, char **argv) {
             glOrtho(0, w, h, 0, -1, 1);
             glMatrixMode(GL_MODELVIEW);
             glLoadIdentity();
+            // Font alignment uses the physical/logical scale while the layout
+            // itself remains in logical pixels, preserving hit-test consistency.
             uiPixelX = float(pw) / w;
             uiPixelY = float(ph) / h;
             color(.065f, .085f, .12f);
@@ -866,6 +1017,8 @@ int run(int argc, char **argv) {
                 text(float(std::max(20, w / 2 - 192)), float(h / 2 - 10), "DROP YOUR GCODE HERE", 3);
             }
 
+            // The progress slider is a geometric prefix, not firmware progress
+            // from M73. Guard an empty model to avoid a division by zero.
             double fraction = model.moves.empty() ? 0. : double(visible) / model.moves.size();
             color(.14f, .21f, .28f);
             rect(36, float(h - 52), float(std::max(1, w - 72)), 6);
@@ -888,6 +1041,8 @@ int run(int argc, char **argv) {
             }
 
             if (playing) {
+                // Invert setSpeed()'s logarithmic mapping so 1x sits at the center
+                // of the track, with 0.1x and 10x equally far from that center.
                 color(.065f, .085f, .12f);
                 rect(20, float(h - 146), float(w - 40), 40);
                 char speedLabel[40];
@@ -925,6 +1080,9 @@ int run(int argc, char **argv) {
 
             if (colors.open)
                 colors.draw(w, h);
+            // Automation drives the same SDL event handlers as real input. Read
+            // screenshots before presentation while the rendered back buffer is
+            // still current; normal interactive runs never enter this block.
             if (smoke && !loading && !pending && !future.valid() && running) {
                 if (selftest && model.moves.empty())
                     throw std::runtime_error("Selftest requires a nonempty file");
@@ -1096,14 +1254,20 @@ int run(int argc, char **argv) {
                 }
             }
 
+            // Present the completed back buffer, then mark this frame clean.
+            // Swap interval 1 may wait here for the next monitor refresh.
             SDL_GL_SwapWindow(window);
             dirty = false;
         }
 
+        // Short waits keep playback/progress responsive; longer idle waits reduce
+        // CPU use. A received event is stored for processing at the next iteration.
         if (running)
             hasWaited = SDL_WaitEventTimeout(&waited, (playing || loading) ? 8 : 50);
     }
 
+    // Stop the worker before local atomics/references go out of scope. Release GL
+    // resources while the context is still alive, then the context, window, and SDL.
     cancel = true;
     if (colors.changed)
         colors.save();

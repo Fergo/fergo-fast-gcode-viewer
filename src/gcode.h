@@ -12,11 +12,17 @@ struct Vec3 {
 };
 
 struct Vertex {
+    // Interleaved GPU format: XYZ floats followed by RGBA bytes. main.cpp passes
+    // this stride/offset to glVertexPointer/glColorPointer. Alpha encodes whether
+    // material is deposited; editable display colors are supplied by uniforms.
     float x, y, z;
     std::uint8_t r, g, b, a;
 };
 
 struct Move {
+    // An original geometric command may expand into many line pairs (arcs).
+    // vertexEnd is an exclusive cumulative count, letting the GPU draw any
+    // complete prefix without searching/rebuilding individual segments.
     Vec3 end;
     std::uint32_t vertexEnd;
     std::uint64_t line;
@@ -36,6 +42,8 @@ struct PrintSettings {
 };
 
 struct Model {
+    // Parsing fills both arrays. The render thread releases vertices after upload
+    // but keeps moves to drive the slider, source-line display, and nozzle marker.
     std::vector<Vertex> vertices;
     std::vector<Move> moves;
     Vec3 min{}, max{};
