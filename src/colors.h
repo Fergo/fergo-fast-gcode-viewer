@@ -84,6 +84,7 @@ struct Colors {
                     break;
                 }
         }
+
         if (file.bad())
             return false;
         *this = loaded;
@@ -120,14 +121,17 @@ struct Colors {
             if (error)
                 return false;
         }
+
         std::filesystem::rename(temporary, path, error);
         if (error) {
             if (existing) {
                 std::error_code ignored;
                 std::filesystem::rename(backup, path, ignored);
             }
+
             return false;
         }
+
         if (existing)
             std::filesystem::remove(backup, error);
         return true;

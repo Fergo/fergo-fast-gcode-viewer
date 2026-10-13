@@ -129,9 +129,11 @@ void main(){
                 deleteShader(shader);
                 throw std::runtime_error(std::string("Line shader: ") + log);
             }
+
             attachShader(program, shader);
             deleteShader(shader);
         }
+
         linkProgram(program);
         GLint ok = 0;
         getProgramiv(program, GL_LINK_STATUS, &ok);

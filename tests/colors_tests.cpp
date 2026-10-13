@@ -18,6 +18,7 @@ int main() {
                     "line = #FF00GG\ngrid = #1234567\ntravel = #123\n"
                     "unknown = #FFFFFF\nnozzle = #010203\nnozzle = #040506\n";
         }
+
         check(colors.load(path), "Load failed");
         check(colors[Colors::Background].hex() == "#AABBCC", "Whitespace and hex case");
         check(colors[Colors::Line].hex() == Colors{}[Colors::Line].hex(), "Invalid value must retain default");

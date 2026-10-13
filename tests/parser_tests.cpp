@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
                       << " seconds=" << m.seconds << '\n';
             return m.unsupported == 0 && m.invalidArcs == 0 ? 0 : 1;
         }
+
         if (argc > 1 && std::string(argv[1]) == "--benchmark") {
             {
                 std::ofstream f("parser-benchmark.tmp");
@@ -43,12 +44,14 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < 1000000; ++i)
                     f << "G1 X" << (i % 200) << " Y" << ((i / 200) % 200) << " Z" << (i / 40000) * .2 << " E.01\n";
             }
+
             auto bytes = std::filesystem::file_size("parser-benchmark.tmp");
             auto m = gc::parse("parser-benchmark.tmp");
             std::filesystem::remove("parser-benchmark.tmp");
             std::cout << "BENCHMARK bytes=" << bytes << " moves=" << m.moves.size() << " seconds=" << m.seconds << " vertices=" << m.vertices.size() << '\n';
             return 0;
         }
+
         auto m = parse("G21\nG90\nM82\nG1X10Y20Z.2E1\nX20E2\nG91\nG1X5\nM83\nG1Y-2E."
                        "3\nG92X0E0\nG90\nG1X2E.5\n");
         check(m.moves.size() == 5, "modal movements");
@@ -65,6 +68,7 @@ int main(int argc, char **argv) {
             m = parse("G" + std::to_string(plane) + "\n" + start);
             check(m.invalidArcs == 0 && m.vertices.size() > 20, "arc plane");
         }
+
         auto minor = parse("G1 X10\nG3 X0 Y10 R10\n");
         auto major = parse("G1 X10\nG3 X0 Y10 R-10\n");
         check(major.vertices.size() > minor.vertices.size() && major.invalidArcs == 0, "signed R arc");
@@ -113,6 +117,7 @@ int main(int argc, char **argv) {
         } catch (...) {
             cancelled = true;
         }
+
         std::filesystem::remove("parser-test.tmp");
         check(cancelled, "cancellation");
         {
@@ -143,6 +148,7 @@ int main(int argc, char **argv) {
             std::filesystem::remove("parser-test.tmp");
             std::filesystem::remove("parser-test.unsupported.log");
         }
+
         std::cout << "All parser tests passed\n";
         return 0;
     } catch (const std::exception &e) {

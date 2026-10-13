@@ -171,8 +171,10 @@ void text(float x, float y, const std::string &s, float scale = 2) {
                     glVertex2f(a, b + sy);
                 }
         }
+
         x += 6 * sx;
     }
+
     glEnd();
 }
 
@@ -258,6 +260,7 @@ struct ColorsPanel {
             dragging = -1;
             save();
         }
+
         SDL_CaptureMouse(false);
     }
 
@@ -279,6 +282,7 @@ struct ColorsPanel {
             color(.85f, .91f, .94f);
             text(x + 56, y + 63 + i * 24, Colors::names[i], 2);
         }
+
         auto c = palette.values[selected];
         color(c);
         rect(x + 290, y + 60, 50, 34);
@@ -299,6 +303,7 @@ struct ColorsPanel {
             color(.85f, .91f, .94f);
             text(x + 530, cy - 5, std::to_string(channels[channel]), 2);
         }
+
         const char *actions[] = {"SAVE", "RELOAD", "DEFAULTS", "CLOSE"};
         const int positions[] = {20, 160, 300, 460};
         for (int i = 0; i < 4; ++i) {
@@ -344,6 +349,7 @@ void screenshot(int w, int h, const char *path) {
         for (int j = 0; j < 4; ++j)
             header[at + j] = static_cast<unsigned char>(value >> (j * 8));
     };
+
     u32(2, size);
     u32(10, 54);
     u32(14, 40);
@@ -376,6 +382,7 @@ int run(int argc, char **argv) {
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
         window = SDL_CreateWindow(FERGO_APP_NAME, 1280, 800, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     }
+
     if (!window)
         throw std::runtime_error(SDL_GetError());
     SDL_SetWindowMinimumSize(window, 720, 400);
@@ -434,6 +441,7 @@ int run(int argc, char **argv) {
             testPath = argv[i];
         }
     }
+
     ColorsPanel colors;
     const char *basePath = SDL_GetBasePath();
     if (!basePath)
@@ -456,6 +464,7 @@ int run(int argc, char **argv) {
         camera.fit(model);
         dirty = true;
     };
+
     auto scrub = [&](float x) {
         if (model.moves.empty())
             return;
@@ -464,6 +473,7 @@ int run(int argc, char **argv) {
         playCursor = double(visible);
         dirty = true;
     };
+
     auto setSpeed = [&](float x) {
         double t = std::clamp(double(x - 210) / std::max(w - 270, 1), 0., 1.);
         // Logarithmic range: 0.1x .. 1x (center) .. 10x.
@@ -512,11 +522,13 @@ int run(int argc, char **argv) {
                         dirty = true;
                         break;
                     }
+
                     if (about) {
                         about = false;
                         dirty = true;
                         break;
                     }
+
                     if (playing && my >= h - 146 && my < h - 104) {
                         speedDragging = true;
                         SDL_CaptureMouse(true);
@@ -538,6 +550,7 @@ int run(int argc, char **argv) {
                                 visible = 0;
                                 playCursor = 0;
                             }
+
                             playing = !playing;
                             dirty = true;
                         } else if (mx >= w - 228 && mx < w - 128) {
@@ -552,6 +565,7 @@ int run(int argc, char **argv) {
                         }
                     }
                 }
+
                 break;
             case SDL_EVENT_MOUSE_BUTTON_UP:
                 if (event.button.button == SDL_BUTTON_LEFT) {
@@ -559,9 +573,11 @@ int run(int argc, char **argv) {
                         colors.mouseUp();
                         dirty = true;
                     }
+
                     speedDragging = scrubbing = false;
                     SDL_CaptureMouse(false);
                 }
+
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
                 if (colors.open) {
@@ -569,10 +585,12 @@ int run(int argc, char **argv) {
                         colors.adjust(event.motion.x, w);
                         dirty = true;
                     }
+
                     mx = event.motion.x;
                     my = event.motion.y;
                     break;
                 }
+
                 if (about)
                     break;
                 float dx = event.motion.x - mx, dy = event.motion.y - my;
@@ -592,29 +610,36 @@ int run(int argc, char **argv) {
                     camera.target = camera.target + right * (-dx * units) + up * (dy * units);
                     dirty = true;
                 }
+
                 break;
             }
+
             case SDL_EVENT_KEY_DOWN:
                 if (colors.open) {
                     if (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_RETURN) {
                         colors.close();
                         dirty = true;
                     }
+
                     break;
                 }
+
                 if (event.key.key == SDLK_F1 && !event.key.repeat) {
                     about = !about;
                     playing = false;
                     dirty = true;
                     break;
                 }
+
                 if (about) {
                     if (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_RETURN) {
                         about = false;
                         dirty = true;
                     }
+
                     break;
                 }
+
                 if (event.key.repeat && event.key.key != SDLK_LEFT && event.key.key != SDLK_RIGHT)
                     break;
                 if (event.key.key == SDLK_ESCAPE)
@@ -631,6 +656,7 @@ int run(int argc, char **argv) {
                         visible = 0;
                         playCursor = 0;
                     }
+
                     playing = !playing;
                     dirty = true;
                 } else if (event.key.key == SDLK_LEFT || event.key.key == SDLK_RIGHT) {
@@ -640,9 +666,11 @@ int run(int argc, char **argv) {
                     playing = false;
                     dirty = true;
                 }
+
                 break;
             }
         }
+
         {
             std::lock_guard<std::mutex> lock(dialog->mutex);
             if (dialog->path) {
@@ -652,6 +680,7 @@ int run(int argc, char **argv) {
                 playing = false;
             }
         }
+
         if (future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             try {
                 auto result = future.get();
@@ -662,6 +691,7 @@ int run(int argc, char **argv) {
                     fit();
                     while (glGetError() != GL_NO_ERROR) {
                     }
+
                     bindBuffer(GL_ARRAY_BUFFER, buffer);
                     bufferData(GL_ARRAY_BUFFER, static_cast<std::ptrdiff_t>(model.vertices.size() * sizeof(gc::Vertex)), model.vertices.data(), GL_STATIC_DRAW);
                     bindBuffer(GL_ARRAY_BUFFER, 0);
@@ -670,6 +700,7 @@ int run(int argc, char **argv) {
                         visible = 0;
                         throw std::runtime_error("GPU memory allocation failed");
                     }
+
                     // CPU geometry is no longer needed after GPU upload.
                     std::vector<gc::Vertex>().swap(model.vertices);
                     char summary[256];
@@ -682,6 +713,7 @@ int run(int argc, char **argv) {
                         status += " / LOG ERROR";
                         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "GCode log", model.logError.c_str(), window);
                     }
+
                     SDL_SetWindowTitle(window, (std::string(FERGO_APP_NAME) + " | " + model.name).c_str());
                 }
             } catch (const std::exception &e) {
@@ -695,9 +727,11 @@ int run(int argc, char **argv) {
                     }
                 }
             }
+
             loading = false;
             dirty = true;
         }
+
         if (pending && !future.valid()) {
             std::string path = std::move(*pending);
             pending.reset();
@@ -713,6 +747,7 @@ int run(int argc, char **argv) {
                     logPath = source;
                     logPath += ".unsupported.log";
                 }
+
                 return gc::parse(source, &cancel, &progress, logPath);
             });
         } else if (pending)
@@ -727,6 +762,7 @@ int run(int argc, char **argv) {
                 playing = false;
             dirty = true;
         }
+
         if (loading)
             dirty = true;
         if (dirty && pw > 0 && ph > 0 && w > 0 && h > 0) {
@@ -758,6 +794,7 @@ int run(int argc, char **argv) {
                 glVertex3d(cx - 10 * gridStep, cy + d, 0);
                 glVertex3d(cx + 10 * gridStep, cy + d, 0);
             }
+
             glEnd();
             glBegin(GL_LINES);
             color(colors.palette[Colors::AxisX]);
@@ -791,6 +828,7 @@ int run(int argc, char **argv) {
                 glEnd();
                 glEnable(GL_DEPTH_TEST);
             }
+
             glDisable(GL_DEPTH_TEST);
             glViewport(0, 0, pw, ph);
             glMatrixMode(GL_PROJECTION);
@@ -813,6 +851,7 @@ int run(int argc, char **argv) {
                 color(.43f, .54f, .65f);
                 text(480, 24, "FERGO / FAST GCODE VIEWER", 2);
             }
+
             float textCell = 6 * std::max(1.f, std::round(2 * uiPixelX)) / uiPixelX;
             color(.72f, .82f, .88f);
             std::string clipped = status.substr(0, static_cast<size_t>(std::max(1, int((w - 40) / textCell))));
@@ -821,6 +860,7 @@ int run(int argc, char **argv) {
                 color(.27f, .43f, .52f);
                 text(float(std::max(20, w / 2 - 192)), float(h / 2 - 10), "DROP YOUR GCODE HERE", 3);
             }
+
             double fraction = model.moves.empty() ? 0. : double(visible) / model.moves.size();
             color(.14f, .21f, .28f);
             rect(36, float(h - 52), float(std::max(1, w - 72)), 6);
@@ -836,10 +876,12 @@ int run(int argc, char **argv) {
                 color(.4f, .52f, .63f);
                 text(float(w - 450), float(h - 28), "RMB ORBIT / LMB PAN / SCROLL ZOOM", 2);
             }
+
             if (loading) {
                 color(.16f, .83f, .72f);
                 rect(0, 60, float(w) * progress.load(), 2);
             }
+
             if (playing) {
                 color(.065f, .085f, .12f);
                 rect(20, float(h - 146), float(w - 40), 40);
@@ -855,6 +897,7 @@ int run(int argc, char **argv) {
                 rect(210, float(h - 128), trackWidth * speedT, 6);
                 rect(210 + trackWidth * speedT - 5, float(h - 134), 10, 18);
             }
+
             if (about) {
                 color(.02f, .03f, .05f);
                 rect(0, 62, float(w), float(h - 162));
@@ -874,6 +917,7 @@ int run(int argc, char **argv) {
                 color(.55f, .65f, .73f);
                 text(left + 28, top + 204, "CLICK OR PRESS ESC TO CLOSE", 2);
             }
+
             if (colors.open)
                 colors.draw(w, h);
             if (smoke && !loading && !pending && !future.valid() && running) {
@@ -1046,12 +1090,15 @@ int run(int argc, char **argv) {
                                 reinterpret_cast<const char *>(glGetString(GL_VERSION)));
                 }
             }
+
             SDL_GL_SwapWindow(window);
             dirty = false;
         }
+
         if (running)
             hasWaited = SDL_WaitEventTimeout(&waited, (playing || loading) ? 8 : 50);
     }
+
     cancel = true;
     if (colors.changed)
         colors.save();

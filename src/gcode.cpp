@@ -26,6 +26,7 @@ double sweep(double a, double b, bool cw) {
         while (d <= 1e-10)
             d += 2 * pi;
     }
+
     return d;
 }
 } // namespace
@@ -51,6 +52,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
         else
             m.logError = "Cannot create unsupported-command log: " + logPath.u8string();
     }
+
     // Reserve conservatively; a massive file must not trigger a massive allocation up front.
     m.vertices.reserve(static_cast<size_t>(std::min<std::uint64_t>(bytes / 8, 2000000)));
     Vec3 p{}, offset{};
@@ -83,6 +85,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             }
         }
     };
+
     std::string line;
 
     auto unsupported = [&](char letter, double code) {
@@ -107,6 +110,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             if (progress)
                 progress->store(bytes ? std::min(1.f, float(double(consumed) / bytes)) : 1.f);
         }
+
         std::array<double, 26> val{};
         std::array<bool, 26> has{}, seen{};
         std::vector<double> gs, ms;
@@ -119,10 +123,12 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 ++comment;
                 continue;
             }
+
             if (c == ')') {
                 comment = std::max(0, comment - 1);
                 continue;
             }
+
             if (comment)
                 continue;
             if (c >= 'a' && c <= 'z')
@@ -149,6 +155,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 val[c - 'A'] = v;
             }
         }
+
         auto h = [&](char c) { return has[c - 'A']; };
         auto v = [&](char c) { return val[c - 'A']; };
         bool setPosition = false, home = false, block = false, explicitMotion = false;
@@ -179,6 +186,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 block = true;
             }
         }
+
         for (double code : ms) {
             if (code == 82)
                 eAbsolute = true;
@@ -232,6 +240,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             } else
                 unsupported('M', code);
         }
+
         if (home && !block) {
             // Without a machine profile, home is assumed to be zero. Do not
             // invent a homing trajectory or connect it to the previous printed
@@ -244,17 +253,21 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                     p.x = offset.x = 0;
                     homed[0] = true;
                 }
+
                 if (y) {
                     p.y = offset.y = 0;
                     homed[1] = true;
                 }
+
                 if (z) {
                     p.z = offset.z = 0;
                     homed[2] = true;
                 }
             }
+
             continue;
         }
+
         if (h('T') && gs.empty() && ms.empty()) {
             int next = int(std::clamp(v('T'), 0., 255.));
             toolE[tool] = e;
@@ -264,6 +277,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
             eo = toolOffset[tool];
             continue;
         }
+
         if (setPosition) {
             if (h('X'))
                 offset.x = p.x - v('X') * unit;
@@ -275,6 +289,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                 eo = e - v('E') * unit;
             continue;
         }
+
         if (block || (!ms.empty() && !explicitMotion))
             continue;
         if (!h('X') && !h('Y') && !h('Z') && !h('E') && !h('I') && !h('J') && !h('K') && !h('R'))
@@ -299,6 +314,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
                        : plane == 18 ? std::array<double, 3>{a.z, a.x, a.y}
                                      : std::array<double, 3>{a.y, a.z, a.x};
             };
+
             auto from = [&](double u, double w, double t) { return plane == 17 ? Vec3{u, w, t} : plane == 18 ? Vec3{w, t, u}
                                                                                                              : Vec3{t, u, w}; };
             const char ca = plane == 17 ? 'I' : plane == 18 ? 'K'
@@ -350,6 +366,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
         p = q;
         e = ne;
     }
+
     if (in.bad())
         throw std::runtime_error("Error reading file");
     if (cancel && cancel->load())
@@ -360,6 +377,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel, 
         if (!log)
             m.logError = "Cannot finish unsupported-command log: " + logPath.u8string();
     }
+
     m.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (progress)
         progress->store(1);
