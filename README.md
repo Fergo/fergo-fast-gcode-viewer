@@ -11,7 +11,12 @@ interactive navigation. No Python, browser, .NET, or interpreted runtime.
 
 Open `dist/fergo-gcode-viewer.exe`. Keep `SDL3.dll` in the same directory.
 Drop a GCode file onto the window or click **OPEN**. Unicode paths are supported.
-The title shows the application name and loaded filename; diagnostics stay in the footer.
+The title shows the application name and loaded filename. Click the small **?**
+button at the bottom right of the 3D view for move counts, source line, parsing
+time, unsupported commands, invalid arcs, and log status. Click outside the panel,
+click **?** again, or press Esc to close it. Loading errors open the panel automatically.
+An FPS counter appears at the top left of the 3D view. It counts presented frames;
+idle FPS drops because the viewer skips redraws (apart from a once-per-second counter refresh).
 
 ```powershell
 ./dist/fergo-gcode-viewer.exe examples/demo.gcode
@@ -41,7 +46,7 @@ The title shows the application name and loaded filename; diagnostics stay in th
 Green indicates positive extrusion; muted blue indicates travel. The yellow
 marker shows the current nozzle position. The slider follows geometric moves;
 comments, heating commands, and stationary extrusion do not consume steps.
-The footer identifies the original source line. Playback takes approximately
+The **?** panel identifies the original source line. Playback takes approximately
 30 seconds at 1x for larger files and does not simulate actual print time.
 During playback, a SPEED slider appears above the footer. Adjust it live from
 0.1x to 10x; the center is 1x. The selected speed is retained when pausing or

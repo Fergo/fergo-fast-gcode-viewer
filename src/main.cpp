@@ -145,6 +145,8 @@ const char *glyph(char c) {
         return "0000000000001F";
     case '#':
         return "0A0A1F0A1F0A0A";
+    case '?':
+        return "0E110102040004";
     default:
         return "00000000000000";
     }
@@ -492,7 +494,7 @@ int run(int argc, char **argv) {
     // process exit.
     auto *dialog = new Dialog;
     bool running = true, dirty = true, playing = false, travel = true, scrubbing = false, loading = false, smoke = false, selftest = false, logEnabled = false,
-         about = false, speedDragging = false;
+         about = false, speedDragging = false, diagnostics = false;
     int testStage = 0, exitCode = 0;
     std::string testPath;
     double testDistance = 0, testYaw = 0;
@@ -540,6 +542,9 @@ int run(int argc, char **argv) {
     SDL_Event waited{};
     bool hasWaited = false;
     auto last = std::chrono::steady_clock::now();
+    auto fpsSampleStart = last;
+    unsigned fpsFrames = 0;
+    double fps = 0;
     auto fit = [&]() {
         camera.fit(model);
         dirty = true;
@@ -600,7 +605,7 @@ int run(int argc, char **argv) {
             case SDL_EVENT_MOUSE_WHEEL:
                 // Exponential zoom changes distance by a percentage per wheel
                 // step, keeping zoom useful for both tiny and very large models.
-                if (about || colors.open)
+                if (about || colors.open || diagnostics)
                     break;
                 camera.distance = std::clamp(camera.distance * std::exp(-event.wheel.y * .12), .01, std::max(1000., camera.span * 1000));
                 dirty = true;
@@ -622,6 +627,24 @@ int run(int argc, char **argv) {
 
                     if (about) {
                         about = false;
+                        dirty = true;
+                        break;
+                    }
+
+                    // Keep the information button above the playback speed bar.
+                    float helpY = float(h - (playing ? 180 : 134));
+                    if (mx >= w - 44 && mx < w - 16 && my >= helpY && my < helpY + 28) {
+                        diagnostics = !diagnostics;
+                        dirty = true;
+                        break;
+                    }
+
+                    if (diagnostics) {
+                        // Click within the panel consumes input; an outside click
+                        // dismisses it without also starting a camera gesture.
+                        float panelWidth = float(std::min(w - 32, 520));
+                        if (!(mx >= w - 16 - panelWidth && mx < w - 16 && my >= helpY - 250 && my < helpY - 8))
+                            diagnostics = false;
                         dirty = true;
                         break;
                     }
@@ -690,7 +713,7 @@ int run(int argc, char **argv) {
                     break;
                 }
 
-                if (about)
+                if (about || diagnostics)
                     break;
                 float dx = event.motion.x - mx, dy = event.motion.y - my;
                 mx = event.motion.x;
@@ -720,6 +743,12 @@ int run(int argc, char **argv) {
             }
 
             case SDL_EVENT_KEY_DOWN:
+                if (diagnostics && (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_RETURN)) {
+                    diagnostics = false;
+                    dirty = true;
+                    break;
+                }
+
                 if (colors.open) {
                     if (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_RETURN) {
                         colors.close();
@@ -836,6 +865,7 @@ int run(int argc, char **argv) {
             } catch (const std::exception &e) {
                 if (!pending) {
                     status = std::string("ERROR: ") + e.what();
+                    diagnostics = true;
                     SDL_SetWindowTitle(window, FERGO_APP_NAME);
                     if (smoke) {
                         std::fprintf(stderr, "%s\n", status.c_str());
@@ -878,6 +908,15 @@ int run(int argc, char **argv) {
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last).count();
         last = now;
+        // Count actual presented frames, including the idle redraw policy. Update
+        // once a second instead of rendering continuously just to animate a label.
+        double fpsElapsed = std::chrono::duration<double>(now - fpsSampleStart).count();
+        if (fpsElapsed >= 1.) {
+            fps = fpsFrames / fpsElapsed;
+            fpsFrames = 0;
+            fpsSampleStart = now;
+            dirty = true;
+        }
         if (playing && !model.moves.empty()) {
             playCursor = std::min(double(model.moves.size()), playCursor + dt * playbackSpeed * std::max(50., double(model.moves.size()) / 30));
             visible = size_t(playCursor);
@@ -1010,8 +1049,9 @@ int run(int argc, char **argv) {
 
             float textCell = 6 * std::max(1.f, std::round(2 * uiPixelX)) / uiPixelX;
             color(.72f, .82f, .88f);
-            std::string clipped = status.substr(0, static_cast<size_t>(std::max(1, int((w - 40) / textCell))));
-            text(20, float(h - 86), clipped, 2);
+            char fpsLabel[40];
+            std::snprintf(fpsLabel, sizeof fpsLabel, "FPS %.1f", fps);
+            text(16, 76, fpsLabel, 2);
             if (model.moves.empty() && !loading) {
                 color(.27f, .43f, .52f);
                 text(float(std::max(20, w / 2 - 192)), float(h / 2 - 10), "DROP YOUR GCODE HERE", 3);
@@ -1027,7 +1067,7 @@ int run(int argc, char **argv) {
             rect(float(36 + std::max(1, w - 72) * fraction - 5), float(h - 58), 10, 18);
             char info[200];
             auto line = visible ? model.moves[visible - 1].line : 0;
-            std::snprintf(info, sizeof info, "%.1f%%  MOVE %zu/%zu  LINE %llu", fraction * 100, visible, model.moves.size(), (unsigned long long)line);
+            std::snprintf(info, sizeof info, "%.1f%%", fraction * 100);
             color(.71f, .8f, .86f);
             text(36, float(h - 28), info, 2);
             if (w > 1000 && 36 + std::string(info).size() * textCell < w - 460) {
@@ -1056,6 +1096,40 @@ int run(int argc, char **argv) {
                 color(.16f, .83f, .72f);
                 rect(210, float(h - 128), trackWidth * speedT, 6);
                 rect(210 + trackWidth * speedT - 5, float(h - 134), 10, 18);
+            }
+
+            float helpY = float(h - (playing ? 180 : 134));
+            color(diagnostics ? .12f : .065f, diagnostics ? .28f : .085f, diagnostics ? .32f : .12f);
+            rect(float(w - 44), helpY, 28, 28);
+            color(.78f, .86f, .91f);
+            text(float(w - 36), helpY + 7, "?", 2);
+            if (diagnostics) {
+                float panelWidth = float(std::min(w - 32, 520));
+                float left = float(w - 16) - panelWidth, top = helpY - 250;
+                color(.065f, .085f, .12f);
+                rect(left, top, panelWidth, 242);
+                color(.78f, .86f, .91f);
+                text(left + 16, top + 16, "GCODE INFORMATION", 2);
+                auto row = [&](int index, const std::string &label) {
+                    auto limit = static_cast<size_t>(std::max(1, int((panelWidth - 32) / textCell)));
+                    text(left + 16, top + 46 + index * 24, label.substr(0, limit), 2);
+                };
+                char value[160];
+                row(0, loading ? "LOADING..." : model.moves.empty() ? "NO MODEL LOADED"
+                                                                    : "READY");
+                std::snprintf(value, sizeof value, "MOVES %zu / %zu", visible, model.moves.size());
+                row(1, value);
+                std::snprintf(value, sizeof value, "SOURCE LINE %llu", (unsigned long long)line);
+                row(2, value);
+                std::snprintf(value, sizeof value, "PARSE TIME %.3f S", model.seconds);
+                row(3, value);
+                row(4, "UNSUPPORTED " + std::to_string(model.unsupported));
+                row(5, "INVALID ARCS " + std::to_string(model.invalidArcs));
+                row(6, std::string("UNSUPPORTED LOG ") + (logEnabled ? "ON" : "OFF"));
+                if (status.rfind("ERROR:", 0) == 0 || !model.logError.empty()) {
+                    color(1.f, .55f, .35f);
+                    row(7, model.logError.empty() ? status : model.logError);
+                }
             }
 
             if (about) {
@@ -1240,11 +1314,30 @@ int run(int argc, char **argv) {
                     e.drop.data = testPath.c_str();
                     SDL_PushEvent(&e);
                     ++testStage;
+                } else if (selftest && testStage == 10) {
+                    SDL_Event e{};
+                    e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                    e.button.button = SDL_BUTTON_LEFT;
+                    e.button.x = float(w - 30);
+                    e.button.y = float(h - 120);
+                    SDL_PushEvent(&e);
+                    ++testStage;
+                } else if (selftest && testStage == 11) {
+                    if (!diagnostics)
+                        throw std::runtime_error("Diagnostics button selftest failed");
+                    screenshot(pw, ph, "dist/selftest-diagnostics.bmp");
+                    SDL_Event e{};
+                    e.type = SDL_EVENT_KEY_DOWN;
+                    e.key.key = SDLK_ESCAPE;
+                    SDL_PushEvent(&e);
+                    ++testStage;
                 } else {
                     if (selftest && colors.open)
                         throw std::runtime_error("Color menu close selftest failed");
                     if (selftest && about)
                         throw std::runtime_error("About close selftest failed");
+                    if (selftest && diagnostics)
+                        throw std::runtime_error("Diagnostics close selftest failed");
                     if (selftest && visible != model.moves.size())
                         throw std::runtime_error("Drop reload selftest failed");
                     screenshot(pw, ph, "dist/smoke.bmp");
@@ -1257,6 +1350,7 @@ int run(int argc, char **argv) {
             // Present the completed back buffer, then mark this frame clean.
             // Swap interval 1 may wait here for the next monitor refresh.
             SDL_GL_SwapWindow(window);
+            ++fpsFrames;
             dirty = false;
         }
 
