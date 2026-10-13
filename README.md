@@ -1,6 +1,6 @@
 # Fergo Fast GCode Viewer
 
-Version **1.0.0**. Developed by Fergo - 2026.
+Version **1.0.0**. Developed by Fergo - 2026. Vibe-coded AF.
 
 A native C++17 GCode viewer using SDL3 and OpenGL, focused on fast startup and
 interactive navigation. No Python, browser, .NET, or interpreted runtime.
