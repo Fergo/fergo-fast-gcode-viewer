@@ -1072,7 +1072,7 @@ int run(int argc, char **argv) {
             text(36, float(h - 28), info, 2);
             if (w > 1000 && 36 + std::string(info).size() * textCell < w - 460) {
                 color(.4f, .52f, .63f);
-                text(float(w - 450), float(h - 28), "RMB ORBIT / LMB PAN / SCROLL ZOOM", 2);
+                text(float(w - 450), float(h - 28), "LMB PAN / RMB ORBIT / SCROLL ZOOM", 2);
             }
 
             if (loading) {
@@ -1303,7 +1303,8 @@ int run(int argc, char **argv) {
                     SDL_PushEvent(&e);
                     ++testStage;
                 } else if (selftest && testStage == 9) {
-                    if (colors.palette[Colors::Line].hex() != Colors{}[Colors::Line].hex())
+                    const Colors defaults;
+                    if (colors.palette[Colors::Line].hex() != defaults[Colors::Line].hex())
                         throw std::runtime_error("Color defaults selftest failed");
                     SDL_Event e{};
                     e.type = SDL_EVENT_KEY_DOWN;
