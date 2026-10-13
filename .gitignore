@@ -1,0 +1,6 @@
+.tools/
+vendor/
+build/
+dist/
+*-info.json
+*.unsupported.log

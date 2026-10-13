@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "name": "Windows GCC (portable)",
+            "compilerPath": "${workspaceFolder}/.tools/w64devkit/bin/g++.exe",
+            "intelliSenseMode": "windows-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/vendor/SDL3-3.4.18/x86_64-w64-mingw32/include"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}
