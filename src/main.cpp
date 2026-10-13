@@ -785,6 +785,9 @@ int run(int argc, char **argv) {
                 gridStep *= 2;
             gridStep = std::max(gridStep, 1.);
             double cx = std::floor(camera.target.x / gridStep) * gridStep, cy = std::floor(camera.target.y / gridStep) * gridStep;
+            // The grid is a reference backdrop: it must not occlude the axes
+            // or the toolpath. Axes and geometry still use normal depth testing.
+            glDepthMask(GL_FALSE);
             color(colors.palette[Colors::Grid]);
             glBegin(GL_LINES);
             for (int k = -10; k <= 10; ++k) {
@@ -796,13 +799,15 @@ int run(int argc, char **argv) {
             }
 
             glEnd();
+            glDepthMask(GL_TRUE);
+
             glBegin(GL_LINES);
             color(colors.palette[Colors::AxisX]);
-            glVertex3d(0, 0, .01);
-            glVertex3d(gridStep * 3, 0, .01);
+            glVertex3d(0, 0, 0);
+            glVertex3d(gridStep * 3, 0, 0);
             color(colors.palette[Colors::AxisY]);
-            glVertex3d(0, 0, .01);
-            glVertex3d(0, gridStep * 3, .01);
+            glVertex3d(0, 0, 0);
+            glVertex3d(0, gridStep * 3, 0);
             color(colors.palette[Colors::AxisZ]);
             glVertex3d(0, 0, 0);
             glVertex3d(0, 0, gridStep * 3);
