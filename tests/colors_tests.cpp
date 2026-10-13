@@ -2,9 +2,11 @@
 #include <iostream>
 #include <stdexcept>
 
-void check(bool value, const char* message) {
-    if (!value) throw std::runtime_error(message);
+void check(bool value, const char *message) {
+    if (!value)
+        throw std::runtime_error(message);
 }
+
 int main() {
     const std::filesystem::path path = "colors-test.txt";
     try {
@@ -26,16 +28,17 @@ int main() {
         for (int i = 0; i < Colors::Count; ++i)
             check(restored.values[i].hex() == colors.values[i].hex(), "Round trip mismatch");
         // A write failure must preserve an existing configuration.
-        auto blocked = path; blocked += ".tmp";
+        auto blocked = path;
+        blocked += ".tmp";
         std::filesystem::create_directory(blocked);
-        colors[Colors::Background] = {0,0,0};
+        colors[Colors::Background] = {0, 0, 0};
         check(!colors.save(path), "Blocked write should fail");
         check(restored.load(path) && restored[Colors::Background].hex() == "#AABBCC", "Failed save damaged existing file");
         std::filesystem::remove(blocked);
         std::filesystem::remove(path);
         std::cout << "All color settings tests passed\n";
         return 0;
-    } catch (const std::exception& error) {
+    } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;
     }

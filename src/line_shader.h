@@ -1,10 +1,10 @@
 #pragma once
+#include "colors.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
 #include <SDL3/SDL_opengl_glext.h>
 #include <stdexcept>
 #include <string>
-#include "colors.h"
 
 // Expand the original line VBO on the GPU. CPU geometry and slider indices stay
 // unchanged.
@@ -26,10 +26,11 @@ struct LineShader {
     PFNGLUNIFORM1FPROC uniform1f{};
     PFNGLUNIFORM3FPROC uniform3f{};
     GLuint program = 0;
+
     void init() {
-#define LOAD(member, type, name)                                               \
-    member = reinterpret_cast<type>(SDL_GL_GetProcAddress(name));              \
-    if (!member)                                                               \
+#define LOAD(member, type, name)                                  \
+    member = reinterpret_cast<type>(SDL_GL_GetProcAddress(name)); \
+    if (!member)                                                  \
     throw std::runtime_error("Missing " name)
         LOAD(createShader, PFNGLCREATESHADERPROC, "glCreateShader");
         LOAD(shaderSource, PFNGLSHADERSOURCEPROC, "glShaderSource");
@@ -41,12 +42,10 @@ struct LineShader {
         LOAD(attachShader, PFNGLATTACHSHADERPROC, "glAttachShader");
         LOAD(linkProgram, PFNGLLINKPROGRAMPROC, "glLinkProgram");
         LOAD(getProgramiv, PFNGLGETPROGRAMIVPROC, "glGetProgramiv");
-        LOAD(getProgramInfoLog, PFNGLGETPROGRAMINFOLOGPROC,
-             "glGetProgramInfoLog");
+        LOAD(getProgramInfoLog, PFNGLGETPROGRAMINFOLOGPROC, "glGetProgramInfoLog");
         LOAD(deleteProgram, PFNGLDELETEPROGRAMPROC, "glDeleteProgram");
         LOAD(useProgram, PFNGLUSEPROGRAMPROC, "glUseProgram");
-        LOAD(getUniformLocation, PFNGLGETUNIFORMLOCATIONPROC,
-             "glGetUniformLocation");
+        LOAD(getUniformLocation, PFNGLGETUNIFORMLOCATIONPROC, "glGetUniformLocation");
         LOAD(uniform1f, PFNGLUNIFORM1FPROC, "glUniform1f");
         LOAD(uniform3f, PFNGLUNIFORM3FPROC, "glUniform3f");
 #undef LOAD
@@ -118,10 +117,7 @@ void main(){
 }
 )GLSL";
         program = createProgram();
-        for (auto entry :
-             {std::pair<GLenum, const char *>{GL_VERTEX_SHADER, vertex},
-              {GL_GEOMETRY_SHADER, geometry},
-              {GL_FRAGMENT_SHADER, fragment}}) {
+        for (auto entry : {std::pair<GLenum, const char *>{GL_VERTEX_SHADER, vertex}, {GL_GEOMETRY_SHADER, geometry}, {GL_FRAGMENT_SHADER, fragment}}) {
             GLuint shader = createShader(entry.first);
             shaderSource(shader, 1, &entry.second, nullptr);
             compileShader(shader);
@@ -145,21 +141,23 @@ void main(){
             throw std::runtime_error(std::string("Line shader link: ") + log);
         }
     }
-    void begin(float height, float distance, float span, bool travel, const Colors& colors) {
+
+    void begin(float height, float distance, float span, bool travel, const Colors &colors) {
         useProgram(program);
         uniform1f(getUniformLocation(program, "viewportHeight"), height);
         uniform1f(getUniformLocation(program, "cameraDistance"), distance);
         uniform1f(getUniformLocation(program, "modelSpan"), span);
-        uniform1f(getUniformLocation(program, "showTravel"),
-                  travel ? 1.f : 0.f);
-        auto setColor=[&](const char* name,RGB c){
-            uniform3f(getUniformLocation(program,name),c.red(),c.green(),c.blue());
-        };
-        setColor("extrusionColor",colors[Colors::Line]);
-        setColor("travelColor",colors[Colors::Travel]);
-        setColor("backgroundColor",colors[Colors::Background]);
+        uniform1f(getUniformLocation(program, "showTravel"), travel ? 1.f : 0.f);
+        auto setColor = [&](const char *name, RGB c) { uniform3f(getUniformLocation(program, name), c.red(), c.green(), c.blue()); };
+        setColor("extrusionColor", colors[Colors::Line]);
+        setColor("travelColor", colors[Colors::Travel]);
+        setColor("backgroundColor", colors[Colors::Background]);
     }
-    void end() { useProgram(0); }
+
+    void end() {
+        useProgram(0);
+    }
+
     void destroy() {
         deleteProgram(program);
         program = 0;

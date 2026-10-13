@@ -5,6 +5,8 @@ Version **1.0.0**. Developed by Fergo - 2026.
 A native C++17 GCode viewer using SDL3 and OpenGL, focused on fast startup and
 interactive navigation. No Python, browser, .NET, or interpreted runtime.
 
+![Fergo Fast GCode Viewer screenshot](docs/screenshot.png)
+
 ## Run
 
 Open `dist/fergo-gcode-viewer.exe`. Keep `SDL3.dll` in the same directory.
@@ -210,11 +212,25 @@ macOS requires adaptation to an OpenGL core renderer.
 
 For manual CMake builds:
 
+`CMakeLists.txt` describes the application's source files, required libraries,
+Windows resources, and test targets. CMake uses it to generate build files for
+tools such as Make, Ninja, or Visual Studio. `build.sh` uses this configuration;
+`build.ps1` and `build.bat` invoke the portable Windows compiler directly.
+
 ```text
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/SDL3
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
+
+## Code formatting
+
+The project's `.clang-format` keeps opening braces on the same line, uses four
+spaces, inserts blank lines between definitions, and expands short functions
+instead of keeping their bodies on one line. `ColumnLimit: 0` disables a fixed
+line-length limit. Existing intentional line breaks can still be preserved.
+VS Code's **Format Document** reads this file through the workspace settings.
+The generated icon pixel array is not reformatted.
 
 ## Verification
 
