@@ -1,0 +1,11 @@
+; Fergo Fast GCode Viewer colors
+; name = #RRGGBB
+
+background = #090D14
+grid = #1A2633
+travel = #4F658B
+line = #28D2B9
+nozzle = #FFB840
+axis_x = #B33D47
+axis_y = #40A66E
+axis_z = #4D8CE6

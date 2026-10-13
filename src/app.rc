@@ -1,0 +1,28 @@
+#include <winver.h>
+#include "app_info.h"
+1 ICON "docs/icon.ico"
+1 VERSIONINFO
+FILEVERSION FERGO_APP_VERSION_NUM
+PRODUCTVERSION FERGO_APP_VERSION_NUM
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Fergo"
+            VALUE "FileDescription", FERGO_APP_NAME
+            VALUE "FileVersion", FERGO_APP_VERSION
+            VALUE "InternalName", "fergo-gcode-viewer"
+            VALUE "OriginalFilename", "fergo-gcode-viewer.exe"
+            VALUE "ProductName", FERGO_APP_NAME
+            VALUE "ProductVersion", FERGO_APP_VERSION
+            VALUE "LegalCopyright", "Developed by Fergo - 2026"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

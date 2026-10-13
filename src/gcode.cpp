@@ -1,4 +1,5 @@
 #include "gcode.h"
+#include "app_info.h"
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -40,7 +41,7 @@ Model parse(const std::filesystem::path &path, const std::atomic<bool> *cancel,
     if (!logPath.empty()) {
         log.open(logPath, std::ios::binary | std::ios::trunc);
         if (log)
-            log << "GCode Viewer - Unsupported commands\nFile: "
+            log << FERGO_APP_NAME " - Unsupported commands\nFile: "
                 << path.u8string()
                 << "\nFormat: physical line | command | original source\n"
                 << "Unknown G commands block movement on that line. Unknown M "

@@ -4,6 +4,7 @@
 #include <SDL3/SDL_opengl_glext.h>
 #include <stdexcept>
 #include <string>
+#include "colors.h"
 
 // Expand the original line VBO on the GPU. CPU geometry and slider indices stay
 // unchanged.
@@ -23,6 +24,7 @@ struct LineShader {
     PFNGLUSEPROGRAMPROC useProgram{};
     PFNGLGETUNIFORMLOCATIONPROC getUniformLocation{};
     PFNGLUNIFORM1FPROC uniform1f{};
+    PFNGLUNIFORM3FPROC uniform3f{};
     GLuint program = 0;
     void init() {
 #define LOAD(member, type, name)                                               \
@@ -46,6 +48,7 @@ struct LineShader {
         LOAD(getUniformLocation, PFNGLGETUNIFORMLOCATIONPROC,
              "glGetUniformLocation");
         LOAD(uniform1f, PFNGLUNIFORM1FPROC, "glUniform1f");
+        LOAD(uniform3f, PFNGLUNIFORM3FPROC, "glUniform3f");
 #undef LOAD
         const char *vertex = R"GLSL(#version 330 compatibility
 out vec4 lineColor;
@@ -63,6 +66,8 @@ flat out vec3 baseColor;
 flat out float tubeRadius;
 uniform float viewportHeight;
 uniform float showTravel;
+uniform vec3 extrusionColor;
+uniform vec3 travelColor;
 void emitCorner(vec3 p,float x){
     centerEye=p;across=x;
     gl_Position=gl_ProjectionMatrix*vec4(p+sideEye*tubeRadius*x,1);
@@ -82,7 +87,7 @@ void main(){
     if(dot(faceEye,view)<0)faceEye=-faceEye;
     float pixelWorld=2*max(.001,-(a.z+b.z)*.5)/(gl_ProjectionMatrix[1][1]*viewportHeight);
     tubeRadius=max(extrusion?.11:.025,pixelWorld*(extrusion?.85:.45));
-    baseColor=lineColor[0].rgb;
+    baseColor=extrusion?extrusionColor:travelColor;
     emitCorner(a,-1);emitCorner(a,1);emitCorner(b,-1);emitCorner(b,1);EndPrimitive();
 }
 )GLSL";
@@ -95,6 +100,7 @@ flat in vec3 baseColor;
 flat in float tubeRadius;
 uniform float cameraDistance;
 uniform float modelSpan;
+uniform vec3 backgroundColor;
 out vec4 result;
 void main(){
     float x=clamp(across,-1,1),z=sqrt(max(0,1-x*x));
@@ -106,7 +112,7 @@ void main(){
     float spec=pow(max(dot(normal,normalize(light+view)),0),32);
     vec3 lit=baseColor*(.20+.72*diffuse+.12*rim)+vec3(.32)*spec;
     float fog=clamp((length(surface)-cameraDistance+modelSpan*.5)/max(modelSpan*2,.01),0,.65);
-    result=vec4(mix(lit,vec3(.035,.052,.078),fog),1);
+    result=vec4(mix(lit,backgroundColor,fog),1);
     vec4 projected=gl_ProjectionMatrix*vec4(surface,1);
     gl_FragDepth=clamp(projected.z/projected.w*.5+.5,0,1);
 }
@@ -139,13 +145,19 @@ void main(){
             throw std::runtime_error(std::string("Line shader link: ") + log);
         }
     }
-    void begin(float height, float distance, float span, bool travel) {
+    void begin(float height, float distance, float span, bool travel, const Colors& colors) {
         useProgram(program);
         uniform1f(getUniformLocation(program, "viewportHeight"), height);
         uniform1f(getUniformLocation(program, "cameraDistance"), distance);
         uniform1f(getUniformLocation(program, "modelSpan"), span);
         uniform1f(getUniformLocation(program, "showTravel"),
                   travel ? 1.f : 0.f);
+        auto setColor=[&](const char* name,RGB c){
+            uniform3f(getUniformLocation(program,name),c.red(),c.green(),c.blue());
+        };
+        setColor("extrusionColor",colors[Colors::Line]);
+        setColor("travelColor",colors[Colors::Travel]);
+        setColor("backgroundColor",colors[Colors::Background]);
     }
     void end() { useProgram(0); }
     void destroy() {
