@@ -5,7 +5,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
-add_executable(fergo-gcode-viewer src/main.cpp src/gcode.cpp)
+# GLSL stays editable as standalone files, but is embedded in the final binary.
+add_executable(embed-shaders tools/embed_shaders.cpp)
+set(SHADER_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
+set(SHADER_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/line_shaders.generated.h")
+add_custom_command(OUTPUT "${SHADER_HEADER}"
+  COMMAND $<TARGET_FILE:embed-shaders> "${SHADER_DIRECTORY}" "${SHADER_HEADER}"
+  DEPENDS embed-shaders
+    "${SHADER_DIRECTORY}/line.vert"
+    "${SHADER_DIRECTORY}/line.geom"
+    "${SHADER_DIRECTORY}/line.frag"
+  COMMENT "Embedding GLSL shaders"
+  VERBATIM)
+add_executable(fergo-gcode-viewer src/main.cpp src/gcode.cpp "${SHADER_HEADER}")
+target_include_directories(fergo-gcode-viewer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set_target_properties(fergo-gcode-viewer PROPERTIES WIN32_EXECUTABLE TRUE)
 target_link_libraries(fergo-gcode-viewer PRIVATE SDL3::SDL3 OpenGL::GL Threads::Threads)
 if(WIN32)

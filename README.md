@@ -90,6 +90,10 @@ Build scripts preserve an existing `colors.txt` rather than overwriting preferen
 - Slider changes only the vertex count passed to `glDrawArrays`.
 - GPU shaders expand segments into cylindrical-looking strips with diffuse
   lighting, specular highlights, surface depth, and distance attenuation.
+- Shader sources live in `src/shaders/line.vert`, `line.geom`, and `line.frag`.
+  The build compiles a small native C++ tool to embed them in a generated header;
+  shader files are not required at runtime. Edit the GLSL files and rebuild normally
+  with PowerShell, BAT, or CMake (including `build.sh`).
 - Nominal extrusion thickness is 0.22 mm, with a minimum pixel width for visibility;
   this is a display setting, not the slicer's actual extrusion width.
 - MSAA 4x when available. Bitmap text uses integer physical pixels for consistent strokes.

@@ -11,7 +11,14 @@ $resourcePath = Join-Path $OutputDirectory 'app-resource.o'
 & ./.tools/w64devkit/bin/windres.exe -I . -I src src/app.rc -O coff -o $resourcePath
 if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed' }
 $optimization = if ($Debug) { '-O0' } else { '-O3' }
-& $compiler -std=c++17 $optimization -g -Wall -Wextra -Wpedantic -mwindows -static-libgcc -static-libstdc++ "-I$sdl\include" src/main.cpp src/gcode.cpp $resourcePath "-L$sdl\lib" -lSDL3 -lopengl32 -o $appPath
+# Generate embedded GLSL with a native build tool; shader files are not needed at runtime.
+$generatedDirectory = Join-Path $PSScriptRoot 'build/generated'
+$embedTool = Join-Path $OutputDirectory 'embed-shaders.exe'
+& $compiler -std=c++17 -O2 -static-libgcc -static-libstdc++ tools/embed_shaders.cpp -o $embedTool
+if ($LASTEXITCODE -ne 0) { throw 'Shader embedding tool build failed' }
+& (Resolve-Path $embedTool) (Join-Path $PSScriptRoot 'src/shaders') (Join-Path $generatedDirectory 'line_shaders.generated.h')
+if ($LASTEXITCODE -ne 0) { throw 'Shader embedding failed' }
+& $compiler -std=c++17 $optimization -g -Wall -Wextra -Wpedantic -mwindows -static-libgcc -static-libstdc++ "-I$sdl\include" "-I$generatedDirectory" src/main.cpp src/gcode.cpp $resourcePath "-L$sdl\lib" -lSDL3 -lopengl32 -o $appPath
 if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
 & $compiler -std=c++17 -O2 -Wall -Wextra -Wpedantic -static-libgcc -static-libstdc++ -Isrc tests/parser_tests.cpp src/gcode.cpp -o $testPath
 if ($LASTEXITCODE -ne 0) { throw 'Test build failed' }

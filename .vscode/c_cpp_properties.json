@@ -6,6 +6,7 @@
             "intelliSenseMode": "windows-gcc-x64",
             "includePath": [
                 "${workspaceFolder}/src",
+                "${workspaceFolder}/build/generated",
                 "${workspaceFolder}/vendor/SDL3-3.4.18/x86_64-w64-mingw32/include"
             ],
             "cStandard": "c17",
